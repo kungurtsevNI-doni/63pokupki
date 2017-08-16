@@ -1,0 +1,90 @@
+    /** OutputController (контроллер, отвечающий за постановку денег на вывод с сайта)
+     * Удаляет транзанкцию с вывода. 
+     * Возвращает сумму денег из транзакции пользователю.
+     * Затем удаляет запись из БД о данной транзакции.
+     * @param $id
+     * @return \yii\web\Response
+     */
+    public function actionRemove($id){
+        $user = Output::find()->where(['id'=>$id])->one();
+        $creditsForOutput = $user->amount;
+        $user_id = $user->id_user;
+        $user = new User();
+        $user = $user->getUserById($user_id);
+        $user->credits = $user->credits + $creditsForOutput;
+        $user->save();
+
+        $request = Output::find()->where(['id'=>$id])->one();
+        $request->delete();
+        return $this->redirect('index');
+    }
+
+
+     /** AdminController (Все, что связанно с реистрацией в бинарное дерево)
+     * Функция находит всех людей, у которых есть путь обязательной регистрации(БИЗНЕСС-ЛОГИКА: регистрация первая должна быть в родительскую ветку)
+     * равным новому пользователю. 
+     * Проверка пользователь А ли создал этого пользователя, если он, то убирается поле обязаельной регитсрации
+     * если не он, то ему(ПОЛЬЗОВАТЕЛЮ А) ставится такой же путь обязательной регистрации, как и у новго пользователя(только что зарегистрированного).
+     *
+     */
+    public function changeRequiredRegisterPath($id)
+    {
+        /** @var Tree $tree */
+        $tree = new Tree();
+        /** @var User $user */
+        $user = new User();
+        /** @var User $user */
+        $userstousers = new UsersToUsers();
+
+        // пусть обязательной регистрации нового пользователя
+        $newuserrequiredpath = $user->getRequiredPathById($id);
+
+        $tree = $tree->getTreeById($id);
+        $path = $tree->path;
+
+        // находит всех людей с путем обязательной регистрации равным новому пользователю
+        $users_with_same_requiredpath = $user->getUsersByPathOfFirstReg($path);
+
+
+        // перебор всех людей с проверкой на наследование
+        foreach ($users_with_same_requiredpath as $userino) {
+
+            //если он создал нового юзера, его путь обяз. реги обнуляется
+            if ($userstousers->isParent($userino['id'], $id)) {
+                /** @var User $user */
+                $user = new User();
+                $user = $user->getUserById($userino['id']);
+                $user->path_of_first_reg = '0';
+                $user->save();
+            } //если не он создал нового юзера, его путь обяз. реги обновляется
+            else {
+
+                /** @var User $user */
+                $user = new User();
+                $user = $user->getUserById($userino['id']);
+                $user->path_of_first_reg = $newuserrequiredpath;
+                $user->save() ? '' : print_r($user->errors);
+            }
+        }
+    }
+
+
+    /** BookkepingController (Контроллер бухгалтерии) 
+     * Ставит заявку на вывод средств в ОТПРАВЛЕННЫЕ. БИЗНЕСС-ЛОГИКА: 4 состояния вывода средств, каждый из 4 може перейти
+     * в какие-то свои состояния(или обратно). Идет проверка из какого состояния данная транзакнция пришла, а затем 
+     * если нас все удволитворяет перевод в состояние ОТПРАВЛЕННЫЕ. То есть бухгалтер отправил деньги на счет пользователя.
+     * Подобных функции 4 штуки.
+     * @param $id
+     * @return \yii\web\Response
+     */
+    public function actionSend()
+    {
+        $post = \Yii::$app->request->post();
+        $output = new Output();
+        if($post['status'] == Output::STATUS_ERROR || $post['status'] == Output::STATUS_SEND){
+            return $this->redirect('index');
+        }else {
+            $output->changeStatusOfOutput($post['id'], Output::STATUS_SEND);
+            return $this->redirect('index');
+        }
+    }
